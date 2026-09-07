@@ -49,6 +49,8 @@ struct TrayContentView: View {
             }
             Text("\(store.stats?.hostname ?? "Unknown host") · Hermes \(store.status?.version ?? "—")")
                 .font(.caption).foregroundStyle(.secondary)
+            Text("\(store.liveJobs.count) jobs · \(store.sessions.count) sessions · \(store.activeSessions.count) active")
+                .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
             if case .unreachable(let error) = store.connectionState {
                 Text(error).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

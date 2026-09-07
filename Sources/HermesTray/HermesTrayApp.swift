@@ -11,11 +11,11 @@ struct HermesTrayApp: App {
         } label: {
             Image(systemName: "waveform.path.ecg")
                 .overlay(alignment: .topTrailing) {
-                    if store.iconBusy {
+                    if store.iconBusy || store.anyJobRunning {
                         Circle().fill(.orange).frame(width: 6, height: 6).offset(x: 3, y: -2)
                     }
                 }
-                .accessibilityLabel(store.iconBusy ? "Hermes is busy" : "Hermes is idle")
+                .accessibilityLabel(store.iconBusy || store.anyJobRunning ? "Hermes is busy" : "Hermes is idle")
                 .onAppear { store.start() }
         }
         .menuBarExtraStyle(.window)

@@ -14,6 +14,7 @@ final class Store: ObservableObject {
     @Published private(set) var iconBusy = false
     @Published private(set) var connectionState: ConnectionState = .connecting
     @Published private(set) var sessions: [Session] = []
+    @Published private(set) var jobs: [TrayJob] = []
     @Published private(set) var stats: SystemStats?
     @Published private(set) var status: AgentStatus?
     @Published private(set) var errorMessage: String?
@@ -36,6 +37,15 @@ final class Store: ObservableObject {
             .sorted { ($0.started_at ?? 0) > ($1.started_at ?? 0) }
     }
 
+    var liveJobs: [TrayJob] {
+        Array(jobs.sorted {
+            if $0.isRunning != $1.isRunning { return $0.isRunning }
+            return $0.started_at > $1.started_at
+        }.prefix(12))
+    }
+
+    var anyJobRunning: Bool { jobs.contains { $0.isRunning } }
+
     var recentSessions: [Session] {
         Array(sessions.filter { $0.is_active != true }
             .sorted { ($0.ended_at ?? $0.last_activity_at ?? $0.started_at ?? 0)
@@ -55,7 +65,7 @@ final class Store: ObservableObject {
         ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
             .sink { [weak self] date in self?.now = date }
         let current = generation
-        for (endpoint, interval) in [("status", 4.0), ("stats", 4.0), ("sessions", 6.0)] {
+        for (endpoint, interval) in [("status", 4.0), ("stats", 4.0), ("sessions", 6.0), ("jobs", 5.0)] {
             pollTasks.append(Task { [weak self] in
                 while !Task.isCancelled {
                     let tick = Date()
@@ -80,6 +90,7 @@ final class Store: ObservableObject {
         UserDefaults.standard.set(baseURL, forKey: "HermesTray.baseURL")
         client = APIClient(baseURL: url)
         sessions = []
+        jobs = []
         stats = nil
         status = nil
         iconBusy = false
@@ -103,6 +114,10 @@ final class Store: ObservableObject {
                 let value = try await api.systemStats()
                 guard expected == generation, !Task.isCancelled else { return }
                 stats = value
+            case "jobs":
+                let value = try await api.trayJobs()
+                guard expected == generation, !Task.isCancelled else { return }
+                jobs = value
             default:
                 let value = try await api.sessions()
                 guard expected == generation, !Task.isCancelled else { return }
@@ -115,9 +130,12 @@ final class Store: ObservableObject {
             failures[endpoint] = "\(endpoint): \(error.localizedDescription)"
         }
         errorMessage = failures.keys.sorted().compactMap { failures[$0] }.joined(separator: " · ")
-        if failures.isEmpty {
-            errorMessage = nil
-            connectionState = successes.count == 3 ? .connected : .connecting
+        if failures.isEmpty { errorMessage = nil }
+        // The relay's jobs endpoint does not determine dashboard connectivity.
+        let dashboardEndpoints: Set<String> = ["status", "stats", "sessions"]
+        let dashboardErrors = dashboardEndpoints.sorted().compactMap { failures[$0] }
+        if dashboardErrors.isEmpty {
+            connectionState = dashboardEndpoints.isSubset(of: successes) ? .connected : .connecting
         } else {
             connectionState = .unreachable(errorMessage ?? "Unknown error")
         }

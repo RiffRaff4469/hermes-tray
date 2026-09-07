@@ -18,6 +18,24 @@ struct AgentStatus: Codable, Sendable {
 struct PlatformState: Codable, Sendable { var state: String? }
 struct ComponentState: Codable, Sendable { var status: String? }
 struct SessionsResponse: Codable, Sendable { var sessions: [Session]? }
+struct TrayJobsResponse: Codable, Sendable { var jobs: [TrayJob]? }
+
+struct TrayJob: Codable, Sendable {
+    var id: String
+    var name: String
+    var stage: String?
+    var detail: String?
+    var status: String
+    var started_at: Double
+    var heartbeat_at: Double?
+    var alive: Bool?
+    var heartbeat_age: Double?
+
+    var isRunning: Bool { status == "running" }
+    var isDone: Bool { status == "done" }
+    var isFailed: Bool { status == "failed" }
+    var isStale: Bool { isRunning && alive == false }
+}
 
 struct Session: Codable, Sendable {
     var id: String?

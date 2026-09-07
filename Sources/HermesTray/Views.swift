@@ -11,6 +11,10 @@ struct TrayContentView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
+                    if !store.liveJobs.isEmpty {
+                        jobSection
+                        Divider()
+                    }
                     sessionSection("ACTIVE", sessions: store.activeSessions, empty: "No active sessions")
                     Divider()
                     sessionSection("RECENT", sessions: store.recentSessions, empty: "No recent sessions")
@@ -48,6 +52,18 @@ struct TrayContentView: View {
             if case .unreachable(let error) = store.connectionState {
                 Text(error).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if let error = store.errorMessage {
+                Text(error).font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var jobSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("JOBS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(store.liveJobs, id: \.id) { job in
+                JobRowView(job: job, now: store.now)
             }
         }
     }
@@ -66,6 +82,69 @@ struct TrayContentView: View {
                 .buttonStyle(.plain)
                 .help("Open the Hermes dashboard")
             }
+        }
+    }
+}
+
+struct JobRowView: View {
+    let job: TrayJob
+    let now: Date
+
+    private var subtitle: String {
+        [job.stage, job.detail].compactMap { value -> String? in
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }.joined(separator: " · ")
+    }
+
+    private var elapsed: String {
+        if job.isRunning { return DisplayFormat.jobElapsed(start: job.started_at, now: now) }
+        // The API has no ended_at; use the final heartbeat as the duration endpoint.
+        guard let end = job.heartbeat_at else { return "—" }
+        return DisplayFormat.jobElapsed(start: job.started_at, now: Date(timeIntervalSince1970: end))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top) {
+                Text(job.name).font(.callout.weight(.medium)).lineLimit(2)
+                Spacer(minLength: 8)
+                statusGlyph
+                Text(elapsed).monospacedDigit().font(.caption)
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    @ViewBuilder
+    private var statusGlyph: some View {
+        if job.isStale {
+            Image(systemName: "circle.fill").foregroundStyle(.orange)
+                .help("no signal \(DisplayFormat.heartbeatAge(job.heartbeat_age))")
+                .accessibilityLabel("no signal \(DisplayFormat.heartbeatAge(job.heartbeat_age))")
+        } else if job.isRunning && job.alive == true {
+            if #available(macOS 14, *) {
+                Image(systemName: "circle.fill").foregroundStyle(.green)
+                    .symbolEffect(.pulse, options: .repeating)
+                    .accessibilityLabel("Running")
+            } else {
+                Image(systemName: "circle.fill").foregroundStyle(.green)
+                    .accessibilityLabel("Running")
+            }
+        } else if job.isDone {
+            Image(systemName: "checkmark").foregroundStyle(.green).accessibilityLabel("Done")
+        } else if job.isFailed {
+            Image(systemName: "xmark").foregroundStyle(.red).accessibilityLabel("Failed")
+        } else {
+            Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+                .help("Job status or liveness is unknown")
+                .accessibilityLabel("Job status or liveness is unknown")
         }
     }
 }

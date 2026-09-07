@@ -1,0 +1,157 @@
+import SwiftUI
+
+struct TrayContentView: View {
+    @ObservedObject var store: Store
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    sessionSection("ACTIVE", sessions: store.activeSessions, empty: "No active sessions")
+                    Divider()
+                    sessionSection("RECENT", sessions: store.recentSessions, empty: "No recent sessions")
+                }
+            }
+            .frame(maxHeight: 420)
+            Divider()
+            StatsFooterView(stats: store.stats)
+            Divider()
+            HStack {
+                Button("Open Dashboard") { openURL(store.dashboardURL) }
+                Spacer()
+                Button("Settings…") { openWindow(id: "settings") }
+            }
+            .font(.caption)
+        }
+        .padding(16)
+        .frame(width: 420)
+        .onAppear { store.start() }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("HermesTray").font(.headline)
+                Spacer()
+                switch store.connectionState {
+                case .connecting: Label("Connecting…", systemImage: "circle.dotted").foregroundStyle(.secondary)
+                case .connected: Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .unreachable: Label("Unreachable", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                }
+            }
+            Text("\(store.stats?.hostname ?? "Unknown host") · Hermes \(store.status?.version ?? "—")")
+                .font(.caption).foregroundStyle(.secondary)
+            if case .unreachable(let error) = store.connectionState {
+                Text(error).font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func sessionSection(_ title: String, sessions: [Session], empty: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if sessions.isEmpty {
+                Text(empty).font(.callout).foregroundStyle(.secondary).padding(.vertical, 5)
+            }
+            // Index identity also accommodates records whose API id is null or duplicated.
+            ForEach(Array(sessions.enumerated()), id: \.offset) { entry in
+                Button { openURL(store.dashboardURL) } label: {
+                    SessionRowView(session: entry.element, now: store.now)
+                }
+                .buttonStyle(.plain)
+                .help("Open the Hermes dashboard")
+            }
+        }
+    }
+}
+
+struct SessionRowView: View {
+    let session: Session
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top) {
+                Text(session.rowTitle).font(.callout.weight(.medium)).lineLimit(2)
+                Spacer(minLength: 8)
+                if session.is_active != true && session.hasSuccessfulEnd {
+                    Image(systemName: "checkmark").foregroundStyle(.green).accessibilityLabel("Successful")
+                }
+                Text(DisplayFormat.elapsed(session, now: now)).monospacedDigit().font(.caption)
+            }
+            HStack(spacing: 8) {
+                Text(session.sourceBadge.uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                Label(session.tool_call_count.map { String($0) } ?? "—", systemImage: "wrench.and.screwdriver")
+                Text(session.model ?? "Unknown model").lineLimit(1).truncationMode(.middle)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+        .contentShape(Rectangle())
+    }
+}
+
+struct StatsFooterView: View {
+    let stats: SystemStats?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("CPU \(DisplayFormat.decimal(stats?.cpu_percent, digits: 0))%")
+                Spacer()
+                Text("Uptime \(DisplayFormat.uptime(stats?.uptime_seconds))")
+            }
+            Text("RAM \(DisplayFormat.gigabytes(stats?.memory?.used)) / \(DisplayFormat.gigabytes(stats?.memory?.total)) GB (\(DisplayFormat.decimal(stats?.memory?.percent, digits: 0))%)")
+            Text("Disk \(DisplayFormat.gigabytes(stats?.disk?.free)) GB free")
+        }
+        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var store: Store
+    @State private var draft = ""
+    @State private var validationError: String?
+    @State private var saved = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Dashboard connection").font(.headline)
+            TextField("Base URL", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+                .onChange(of: draft) { _ in saved = false; validationError = nil }
+            Text("Default: http://127.0.0.1:9119 — start the SSH tunnel first.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let validationError {
+                Text(validationError).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                if saved { Text("Saved").foregroundStyle(.secondary).font(.caption) }
+                Spacer()
+                Button("Save", action: save).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 430)
+        .onAppear { draft = store.baseURL }
+    }
+
+    private func save() {
+        do {
+            try store.saveBaseURL(draft)
+            validationError = nil
+            saved = true
+        } catch { validationError = error.localizedDescription }
+    }
+}

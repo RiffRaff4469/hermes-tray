@@ -1,9 +1,13 @@
+import AppKit
+import ServiceManagement
 import SwiftUI
 
 struct TrayContentView: View {
     @ObservedObject var store: Store
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
+    @State private var restartPending = false
+    @State private var restartError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,12 +35,44 @@ struct TrayContentView: View {
                 Button("Open Dashboard") { openURL(store.dashboardURL) }
                 Spacer()
                 Button("Settings…") { openWindow(id: "settings") }
+                Spacer(minLength: 4)
+                if Bundle.main.bundleIdentifier != nil {
+                    Button("Restart…", action: restart)
+                        .disabled(restartPending)
+                }
+                Button("Quit") { NSApplication.shared.terminate(nil) }
             }
             .font(.caption)
+            if let restartError {
+                Text(restartError).font(.caption).foregroundStyle(.red)
+            }
         }
         .padding(16)
         .frame(width: 420)
         .onAppear { store.start() }
+    }
+
+    private func restart() {
+        guard Bundle.main.bundleIdentifier != nil, !restartPending else { return }
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        // Without -n, open would only activate this still-running instance.
+        launcher.arguments = ["-n", Bundle.main.bundleURL.path]
+        restartError = nil
+        do {
+            try launcher.run()
+            restartPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if !launcher.isRunning && launcher.terminationStatus != 0 {
+                    restartPending = false
+                    restartError = "Could not reopen HermesTray. Please relaunch it from /Applications."
+                    return
+                }
+                NSApplication.shared.terminate(nil)
+            }
+        } catch {
+            restartError = "Could not restart: \(error.localizedDescription)"
+        }
     }
 
     private var header: some View {
@@ -207,6 +243,8 @@ struct SettingsView: View {
     @State private var draft = ""
     @State private var validationError: String?
     @State private var saved = false
+    @State private var launchAtLogin = false
+    @State private var loginError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -215,8 +253,19 @@ struct SettingsView: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
                 .onChange(of: draft) { _ in saved = false; validationError = nil }
-            Text("Default: http://127.0.0.1:9119 — start the SSH tunnel first.")
+            Text("Default: \(Store.defaultBaseURL) — connect to Tailscale first.")
                 .font(.caption).foregroundStyle(.secondary)
+            if Bundle.main.bundleIdentifier != nil {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { setLaunchAtLogin($0) }
+                ))
+                Text("Relaunch the app from /Applications once for this to take effect.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let loginError {
+                    Text(loginError).font(.caption).foregroundStyle(.red)
+                }
+            }
             if let validationError {
                 Text(validationError).foregroundStyle(.red).font(.caption)
             }
@@ -228,7 +277,34 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 430)
-        .onAppear { draft = store.baseURL }
+        .onAppear {
+            draft = store.baseURL
+            if Bundle.main.bundleIdentifier != nil {
+                launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
+        }
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let previous = launchAtLogin
+        launchAtLogin = enabled
+        loginError = nil
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            if enabled && SMAppService.mainApp.status == .requiresApproval {
+                loginError = "Allow HermesTray in System Settings → General → Login Items."
+            }
+        } catch {
+            // A custom binding keeps this rollback from invoking the service again.
+            launchAtLogin = previous
+            loginError = "Could not update launch at login: \(error.localizedDescription)"
+        }
     }
 
     private func save() {

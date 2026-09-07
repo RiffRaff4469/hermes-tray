@@ -19,8 +19,11 @@ struct TrayContentView: View {
                     Divider()
                     sessionSection("RECENT", sessions: store.recentSessions, empty: "No recent sessions")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 420)
+            // MenuBarExtra windows auto-size and collapse greedy ScrollViews to
+            // zero height — give the list a fixed frame so rows always render.
+            .frame(height: 360)
             Divider()
             StatsFooterView(stats: store.stats)
             Divider()

@@ -6,7 +6,13 @@ Check your installation with `swift --version`.
 
 ## Connect first
 
-Enable the SSH server on the Windows machine running Hermes. From your Mac,
+Connect both machines to Tailscale. The default dashboard URL is
+`http://100.70.40.46:9119`; open it in a browser on the Mac to check connectivity.
+The app bundle permits plain HTTP because this personal endpoint is reached
+over the Tailscale WireGuard connection.
+
+For an optional SSH connection instead, enable the SSH server on the Windows
+machine running Hermes. From your Mac,
 replace the destination below with your Windows SSH username and hostname:
 
 ```sh
@@ -15,6 +21,31 @@ ssh -N -L 9119:localhost:9119 WINDOWS_USER@WINDOWS_HOST
 
 Keep this terminal open. Hermes must be listening on port 9119 on Windows.
 Open `http://127.0.0.1:9119/` in a browser to confirm the dashboard is reachable.
+Set that URL in HermesTray Settings when using this alternative.
+
+## Run as a real app
+
+Stop the Xcode instance first (Xcode's Stop button, or `pkill -f HermesTray`
+in Terminal). From this project directory on the Mac, run these two commands:
+
+```sh
+chmod +x scripts/make_app.sh && ./scripts/make_app.sh
+cp -R HermesTray.app /Applications/ && open /Applications/HermesTray.app
+```
+
+The first command builds in release mode, assembles `HermesTray.app`, and
+ad-hoc signs it, including for Apple Silicon. The `chmod` makes the script
+executable even if a Windows checkout or file transfer lost its Unix mode.
+The script also works when invoked from another directory. The second command
+installs and launches the app. When updating, quit the installed instance first.
+
+The app runs only in the menu bar, with no Dock icon. Open **Settings…** and
+enable **Launch at login** after launching from `/Applications`. If macOS
+requests approval, allow HermesTray under System Settings → General → Login
+Items. Keep the bundle in `/Applications` for reliable login startup.
+**Quit** and **Restart…** are in the dropdown footer. Restart launches a new
+instance of the same bundle and then quits the old instance. Restart and the
+login toggle are hidden when running the bare SwiftPM executable.
 
 ## Build and run
 
@@ -36,7 +67,7 @@ sessions, and system statistics. Session rows open the dashboard home.
 Choose **Settings…**, enter the dashboard base URL, and click **Save** to
 reconnect immediately. The URL persists between launches. HTTP and HTTPS
 URLs, including a base path, are supported; credentials, queries, and fragments
-are rejected. The default is `http://127.0.0.1:9119`.
+are rejected. The default is `http://100.70.40.46:9119`.
 
 Status and system statistics poll every four seconds; sessions poll every six.
 Requests for a given endpoint never overlap. Slow requests delay the next poll.
@@ -59,7 +90,8 @@ the header without changing dashboard connectivity.
 
 ## Authentication and troubleshooting
 
-- **Unreachable:** Check the tunnel, Windows SSH service, and Hermes dashboard.
+- **Unreachable:** Check Tailscale connectivity and the Hermes dashboard
+  (or the tunnel and Windows SSH service if using the SSH alternative).
   Polling retries automatically. Data remains visible but may be stale.
 - **401:** The app extracts the token from the dashboard HTML and automatically
   refreshes it and retries once when a protected request returns HTTP 401.
@@ -74,7 +106,10 @@ the header without changing dashboard connectivity.
 - **Build tools:** Ensure `swift --version` reports Swift 5.9+ and your selected
   developer tools include the macOS SDK. This project cannot build on Windows.
 
-## Start the tunnel at login
+## Start the optional SSH tunnel at login (legacy)
+
+This is unnecessary for the default Tailscale connection and does not launch
+HermesTray itself; use **Launch at login** in the bundled app for that.
 
 Edit `support/hermes-tunnel.plist`, replacing `WINDOWS_USER@WINDOWS_HOST` in
 the SSH argument list. Configure SSH keys (or an SSH config Host alias) so the
@@ -114,5 +149,8 @@ shows Unreachable. Jobs polling is tracked separately from dashboard connectivit
 
 Written and statically reviewed on Windows without a macOS SDK; compilation
 and live UI/network validation must be performed on a Mac. Verify launch,
-Settings, session links, busy/idle display, a tunnel outage/recovery, and token
-refresh against your Hermes instance after building.
+Settings, session links, busy/idle display, a connection outage/recovery, and token
+refresh against your Hermes instance after building. For the bundle, also verify
+HTTP connectivity, no Dock icon, Quit, Restart, and launch after logging out/in
+with **Launch at login** enabled. Disable it and confirm it stays off after
+reopening Settings. Bare SwiftPM runs should hide Restart and the login toggle.

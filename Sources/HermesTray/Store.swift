@@ -9,7 +9,7 @@ enum ConnectionState {
 
 @MainActor
 final class Store: ObservableObject {
-    static let defaultBaseURL = "http://127.0.0.1:9119"
+    static let defaultBaseURL = "http://100.70.40.46:9119"
     @Published private(set) var baseURL: String
     @Published private(set) var iconBusy = false
     @Published private(set) var connectionState: ConnectionState = .connecting

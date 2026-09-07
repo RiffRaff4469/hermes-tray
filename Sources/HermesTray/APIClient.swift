@@ -22,6 +22,7 @@ actor APIClient {
         case status = "api/status"
         case sessions = "api/sessions"
         case systemStats = "api/system/stats"
+        case trayJobs = "api/tray/jobs"
     }
 
     let baseURL: URL
@@ -55,6 +56,11 @@ actor APIClient {
 
     func status() async throws -> AgentStatus {
         try await get(.status, authenticated: false)
+    }
+
+    func trayJobs() async throws -> [TrayJob] {
+        let response: TrayJobsResponse = try await get(.trayJobs, authenticated: false)
+        return response.jobs ?? []
     }
 
     func sessions() async throws -> [Session] {

@@ -7,6 +7,11 @@ enum DisplayFormat {
         if session.is_active == true { end = now.timeIntervalSince1970 }
         else if let ended = session.ended_at { end = ended }
         else { return "—" }
+        return jobElapsed(start: start, now: Date(timeIntervalSince1970: end))
+    }
+
+    static func jobElapsed(start: Double, now: Date) -> String {
+        let end = now.timeIntervalSince1970
         guard start.isFinite, end.isFinite else { return "—" }
         let seconds = Int(min(max(0, end - start), Double(Int.max / 2)))
         if seconds >= 3600 {
@@ -18,6 +23,12 @@ enum DisplayFormat {
     static func decimal(_ value: Double?, digits: Int = 1) -> String {
         guard let value, value.isFinite else { return "—" }
         return value.formatted(.number.precision(.fractionLength(digits)))
+    }
+
+    static func heartbeatAge(_ seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds >= 0 else { return "—" }
+        if seconds < 60 { return "now" }
+        return "\(Int(min(seconds / 60, Double(Int.max / 2))))m"
     }
 
     static func gigabytes(_ bytes: Double?) -> String {

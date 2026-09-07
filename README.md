@@ -27,7 +27,7 @@ swift run HermesTray
 
 Alternatively, run `open Package.swift`, select the HermesTray executable in
 Xcode, and choose Run. The pulse icon appears in the menu bar; an orange dot
-means `gateway_busy` is true or `active_agents` is greater than zero. A Dock
+means `gateway_busy` is true, `active_agents` is greater than zero, or a job is running. A Dock
 icon is acceptable for this SwiftPM executable. Stop a terminal launch with
 Control-C, or stop the executable in Xcode.
 
@@ -42,6 +42,20 @@ Status and system statistics poll every four seconds; sessions poll every six.
 Requests for a given endpoint never overlap. Slow requests delay the next poll.
 Elapsed times refresh locally every second. Outages retain the last good data,
 including the last busy state, and show endpoint errors in the header.
+
+## Jobs
+
+The JOBS section shows up to 12 named long-running jobs above active sessions,
+with running jobs first and newest starts first within each group. Agents/scripts
+register jobs via `hermes-job.py` on the PC. Jobs poll every five seconds through
+the relay's unauthenticated `/api/tray/jobs` endpoint. A green dot means the server
+reports a running job with a heartbeat within its 120-second liveness window;
+an orange dot means stale (running but no recent heartbeat), not necessarily failed.
+Hover over it for the reported heartbeat age. Done/failed jobs show a checkmark/xmark.
+Running durations tick every second; completed durations use the final `heartbeat_at`
+because the endpoint has no completion timestamp (a missing heartbeat shows a dash).
+The section is hidden when empty. Jobs errors retain the last data and appear in
+the header without changing dashboard connectivity.
 
 ## Authentication and troubleshooting
 
@@ -95,7 +109,8 @@ and `normal` (case-insensitive). Unknown reasons get no checkmark. Active means
 `is_active == true`; other records appear under Recent, sorted by end time,
 then last activity/start time when unavailable. Memory and disk use binary
 gigabytes, labeled GB to match the brief. Connection becomes Connected after
-all three endpoints succeed; any outstanding endpoint failure shows Unreachable.
+all three dashboard endpoints succeed; any outstanding dashboard endpoint failure
+shows Unreachable. Jobs polling is tracked separately from dashboard connectivity.
 
 Written and statically reviewed on Windows without a macOS SDK; compilation
 and live UI/network validation must be performed on a Mac. Verify launch,

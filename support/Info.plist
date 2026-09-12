@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.jaide.HermesTray</string>
+    <string>dev.hermes-tray.HermesTray</string>
     <key>CFBundleName</key>
     <string>HermesTray</string>
     <key>CFBundleDisplayName</key>
@@ -27,7 +27,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026 jaide</string>
+    <string>© 2026 HermesTray contributors</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>

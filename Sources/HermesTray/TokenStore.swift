@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct TokenStore: Sendable {
-    private let service = "com.jaide.HermesTray.session-token"
+    private let service = "dev.hermes-tray.HermesTray.session-token"
 
     private func query(for account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

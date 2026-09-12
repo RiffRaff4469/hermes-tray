@@ -1,156 +1,155 @@
 # HermesTray
 
-A macOS menu bar monitor for a remote Hermes agent. Requires macOS 13 or later
-and Xcode 15+ or the full Xcode Command Line Tools with Swift 5.9+.
-Check your installation with `swift --version`.
+A macOS menu bar monitor for your own self-hosted [Hermes](https://hermes-agent.nousresearch.com/docs)
+agent. It polls your backend and shows, at a glance, whether the agent is busy,
+what it is working on, and how the host it runs on is doing.
 
-## Connect first
+- Menu bar icon (`waveform.path.ecg`) with an orange dot when the agent is busy or a job is running.
+- Header: connection state, host, Hermes version, counts.
+- **JOBS** — named long-running jobs with a liveness heartbeat (only when your backend serves the jobs endpoint).
+- **ACTIVE** / **RECENT** — live sessions with elapsed time, tool-call count and model; finished sessions with a ✓ for clean ends.
+- System stats footer: CPU, RAM, disk free, uptime.
+- Footer: Open Dashboard, Settings…, Restart… (bundled builds only) and Quit.
 
-Connect both machines to Tailscale. The default dashboard URL is
-`http://100.70.40.46:9119`; open it in a browser on the Mac to check connectivity.
-The app bundle permits plain HTTP because this personal endpoint is reached
-over the Tailscale WireGuard connection.
+## Requirements
 
-For an optional SSH connection instead, enable the SSH server on the Windows
-machine running Hermes. From your Mac,
-replace the destination below with your Windows SSH username and hostname:
+- macOS 13.0 or later (SwiftUI `MenuBarExtra`).
+- Xcode 15 or later, or the full Xcode Command Line Tools (`xcode-select --install`, then `swift --version`).
+- No third-party dependencies — SwiftPM, SwiftUI, Foundation, Security only.
 
-```sh
-ssh -N -L 9119:localhost:9119 WINDOWS_USER@WINDOWS_HOST
-```
+## Status — read this before you build
 
-Keep this terminal open. Hermes must be listening on port 9119 on Windows.
-Open `http://127.0.0.1:9119/` in a browser to confirm the dashboard is reachable.
-Set that URL in HermesTray Settings when using this alternative.
+Verified on 2026-09-12 against a stock Hermes **0.20.0** backend (release build
+2026-08-03) at a VPN-reachable address. HermesTray was written against an older
+backend, and one part of it no longer matches the backend it talks to.
 
-## Run as a real app
+**What works.** `GET /api/status` is on the backend's credential-free allowlist,
+so the icon's busy badge, the agent version in the header, and Open Dashboard /
+Quit / Restart all work against a current backend. (The hostname shown next to
+the version comes from the gated stats endpoint, so it reads `Unknown host`.)
 
-Stop the Xcode instance first (Xcode's Stop button, or `pkill -f HermesTray`
-in Terminal). From this project directory on the Mac, run these two commands:
+**What is stale — the session-token bootstrap.** The ACTIVE, RECENT and stats
+sections need a session token, and the app obtains one by scraping
+`window.__HERMES_SESSION_TOKEN__` out of the HTML of `GET /`. A current backend
+does not serve that token: `GET /` answers `302` to `/login?next=/`, and the
+sign-in page contains no session token at all. Those sections therefore stay
+empty, and because the app re-scrapes on every 401 they keep failing — the header
+shows **Unreachable** with `The dashboard HTML did not contain a session token.`
+even though `/api/status` itself is answering fine.
 
-```sh
-chmod +x scripts/make_app.sh && ./scripts/make_app.sh
-cp -R HermesTray.app /Applications/ && open /Applications/HermesTray.app
-```
+The real auth on a current backend is a browser-style sign-in, and both available
+forms need a flow HermesTray does not implement:
 
-The first command builds in release mode, assembles `HermesTray.app`, and
-ad-hoc signs it, including for Apple Silicon. The `chmod` makes the script
-executable even if a Windows checkout or file transfer lost its Unix mode.
-The script also works when invoked from another directory. The second command
-installs and launches the app. When updating, quit the installed instance first.
+| Endpoint | Credentials required |
+| --- | --- |
+| `GET /api/status` | none — on the backend's credential-free allowlist |
+| `GET /api/sessions` | session cookie, or `Authorization: Bearer <session token>` |
+| `GET /api/system/stats` | session cookie, or `Authorization: Bearer <session token>` |
+| `GET /api/tray/jobs` | not a stock Hermes route — see below |
 
-The app runs only in the menu bar, with no Dock icon. Open **Settings…** and
-enable **Launch at login** after launching from `/Applications`. If macOS
-requests approval, allow HermesTray under System Settings → General → Login
-Items. Keep the bundle in `/Applications` for reliable login startup.
-**Quit** and **Restart…** are in the dropdown footer. Restart launches a new
-instance of the same bundle and then quits the old instance. Restart and the
-login toggle are hidden when running the bare SwiftPM executable.
+- Sign-in form: `GET /login` (fields `username`, `password`, `next`) sets a session cookie. `GET /` redirects there.
+- Bearer: the backend also accepts the session token as `Authorization: Bearer …` (its native-app path), refreshed via `/auth/native/refresh`.
+- Unauthenticated gated requests answer `401` with `{"error":"unauthenticated","reason":"no_cookie","login_url":"/login"}`; a rejected token answers with `{"reason":"invalid_or_expired_session"}`.
+
+**What is stale — the JOBS section.** `/api/tray/jobs` is not a Hermes route. The
+app expects a small companion endpoint in front of the dashboard that returns
+`{"jobs":[{...,"alive":true,"heartbeat_age":4.2}]}`. Pointed straight at a stock
+backend it gets `401 login_url:/login`, so the JOBS section stays hidden.
+
+Neither stale path is fixed here: matching the new auth model is a separate piece
+of work. Until then, treat this as a monitor for the agent's status and busy
+state, not for session or host detail.
 
 ## Build and run
 
-From this project directory on your Mac:
-
 ```sh
-swift build
-swift run HermesTray
+git clone https://github.com/RiffRaff4469/hermes-tray.git
+cd hermes-tray
+swift run
 ```
 
-Alternatively, run `open Package.swift`, select the HermesTray executable in
-Xcode, and choose Run. The pulse icon appears in the menu bar; an orange dot
-means `gateway_busy` is true, `active_agents` is greater than zero, or a job is running. A Dock
-icon is acceptable for this SwiftPM executable. Stop a terminal launch with
-Control-C, or stop the executable in Xcode.
+The menu bar icon appears; there is no Dock icon in bundled builds. You can also
+`open Package.swift` in Xcode and press Run.
 
-Click the pulse icon for active sessions, the eight most recent inactive
-sessions, and system statistics. Session rows open the dashboard home.
-Choose **Settings…**, enter the dashboard base URL, and click **Save** to
-reconnect immediately. The URL persists between launches. HTTP and HTTPS
-URLs, including a base path, are supported; credentials, queries, and fragments
-are rejected. The default is `http://100.70.40.46:9119`.
-
-Status and system statistics poll every four seconds; sessions poll every six.
-Requests for a given endpoint never overlap. Slow requests delay the next poll.
-Elapsed times refresh locally every second. Outages retain the last good data,
-including the last busy state, and show endpoint errors in the header.
-
-## Jobs
-
-The JOBS section shows up to 12 named long-running jobs above active sessions,
-with running jobs first and newest starts first within each group. Agents/scripts
-register jobs via `hermes-job.py` on the PC. Jobs poll every five seconds through
-the relay's unauthenticated `/api/tray/jobs` endpoint. A green dot means the server
-reports a running job with a heartbeat within its 120-second liveness window;
-an orange dot means stale (running but no recent heartbeat), not necessarily failed.
-Hover over it for the reported heartbeat age. Done/failed jobs show a checkmark/xmark.
-Running durations tick every second; completed durations use the final `heartbeat_at`
-because the endpoint has no completion timestamp (a missing heartbeat shows a dash).
-The section is hidden when empty. Jobs errors retain the last data and appear in
-the header without changing dashboard connectivity.
-
-## Authentication and troubleshooting
-
-- **Unreachable:** Check Tailscale connectivity and the Hermes dashboard
-  (or the tunnel and Windows SSH service if using the SSH alternative).
-  Polling retries automatically. Data remains visible but may be stale.
-- **401:** The app extracts the token from the dashboard HTML and automatically
-  refreshes it and retries once when a protected request returns HTTP 401.
-  Persistent 401 errors indicate a server authentication or base URL problem.
-- **Missing token:** Check that the URL points to the Hermes dashboard, whose
-  HTML must contain `window.__HERMES_SESSION_TOKEN__`.
-- Tokens are cached per base URL in Keychain. If a Keychain write fails, the
-  token is stored in UserDefaults, which is not encrypted secret storage.
-- Missing/null API values display as dashes or descriptive placeholders.
-  Unknown session sources display as `other`. A missing title displays as
-  “Untitled session”. Missing end times display an unknown elapsed duration.
-- **Build tools:** Ensure `swift --version` reports Swift 5.9+ and your selected
-  developer tools include the macOS SDK. This project cannot build on Windows.
-
-## Start the optional SSH tunnel at login (legacy)
-
-This is unnecessary for the default Tailscale connection and does not launch
-HermesTray itself; use **Launch at login** in the bundled app for that.
-
-Edit `support/hermes-tunnel.plist`, replacing `WINDOWS_USER@WINDOWS_HOST` in
-the SSH argument list. Configure SSH keys (or an SSH config Host alias) so the
-connection works without interaction. Connect manually once to verify the
-host key and authentication before installing the agent. Stop the manual
-tunnel before starting launchd, so the port is available.
-
-On the Mac:
+## Run as a real app
 
 ```sh
-mkdir -p ~/Library/LaunchAgents
-cp support/hermes-tunnel.plist ~/Library/LaunchAgents/com.jaide.hermes-tunnel.plist
-plutil -lint ~/Library/LaunchAgents/com.jaide.hermes-tunnel.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jaide.hermes-tunnel.plist
-launchctl kickstart -k gui/$(id -u)/com.jaide.hermes-tunnel
+./scripts/make_app.sh          # builds, assembles and ad-hoc signs HermesTray.app
+cp -R HermesTray.app /Applications/
+open /Applications/HermesTray.app
 ```
 
-The sample uses SSH keepalives and launchd restart throttling to reconnect.
-Inspect it with `launchctl print gui/$(id -u)/com.jaide.hermes-tunnel`.
-To remove it:
+Then Settings… → **Launch at login** if you want it to start automatically.
+Restart… and Quit live in the dropdown footer. Stop any Xcode-launched instance
+first (`pkill -f HermesTray`).
 
-```sh
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.jaide.hermes-tunnel.plist
-rm ~/Library/LaunchAgents/com.jaide.hermes-tunnel.plist
+`SMAppService` (launch at login) keys off the bundle identifier
+`dev.hermes-tray.HermesTray`, so if you change that identifier, or upgrade from a
+build that used a different one, re-toggle the setting — otherwise an old login
+item is left behind in System Settings → General → Login Items.
+
+## Point it at your backend
+
+Settings… → **Base URL** → your own dashboard address → Save.
+
+- The app ships **no real address**. The field starts pre-filled with the
+  placeholder `http://your-hermes-host:9119`, and until you replace it and save,
+  the app polls that placeholder host and reports Unreachable.
+- Accepted: `http` or `https`, a host (and optional port), no credentials, query or fragment.
+- The Mac must be able to reach the host: same LAN, a VPN such as WireGuard or
+  Tailscale, or an SSH tunnel. `http://127.0.0.1:9119` works if you forward the port to your own machine.
+
+**Cleartext HTTP and App Transport Security.** `support/Info.plist` sets
+`NSAppTransportSecurity → NSAllowsArbitraryLoads = true`. A bundled app otherwise
+blocks plain-HTTP requests to anything that is not loopback, which would break a
+dashboard served over `http://` on a LAN or VPN address — that is why the key is
+there. What it means: inside this app, ATS is off for **every** host, so the app
+would also accept cleartext HTTP elsewhere if it ever talked elsewhere. It does
+not: every request goes to the single base URL you configure. Serve your backend
+over `https` if you can, and drop the ATS key entirely if you only ever use
+loopback.
+
+## Data — what leaves the machine
+
+One line each:
+
+- **Requests:** `GET /api/status` and `/api/system/stats` every 4s, `/api/sessions` every 6s, `/api/tray/jobs` every 5s — all to the base URL you configure. No other host, no analytics, no update or phone-home requests.
+- **Sent:** no request bodies, no query parameters. An `Authorization: Bearer <token>` header on `/api/sessions` and `/api/system/stats` when a token is stored. Nothing else.
+- **Stored locally:** the base URL in `UserDefaults` (`HermesTray.baseURL`); the session token in the macOS Keychain (service `dev.hermes-tray.HermesTray.session-token`), falling back to `UserDefaults` — unencrypted — only if the Keychain write fails.
+- **Received, then rendered locally and never uploaded:** agent status and version, session metadata (titles, models, tool and token counts, cost estimates) and host stats (CPU, RAM, disk, uptime).
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| Unreachable, connection refused or timed out | Wrong base URL, backend not running, or the Mac cannot reach the host (LAN/VPN/tunnel). Check the URL in a browser on the Mac first. |
+| `The dashboard HTML did not contain a session token.` | Expected on a current backend — see Status. Not a configuration problem. |
+| `HTTP 401` from the jobs endpoint | The JOBS section needs a companion endpoint that serves `/api/tray/jobs`. |
+| No Dock icon, no window | By design — `LSUIElement` is true; the app lives in the menu bar. |
+| `swift: command not found` | Install Xcode 15+ or the full Command Line Tools, then `swift --version`. |
+| Launch at login does nothing | Relaunch from `/Applications` once; the bundle must sit in a stable location, and you may need to approve it in System Settings → General → Login Items. |
+
+## Repository layout
+
+```
+Package.swift                     SwiftPM manifest (macOS 13+, executable target)
+Sources/HermesTray/
+  HermesTrayApp.swift             @main app, MenuBarExtra + Settings window
+  APIClient.swift                 URLSession client, token bootstrap, /api/* endpoints
+  Models.swift                    Codable models for the API payloads
+  Store.swift                     @MainActor polling store and UI state
+  TokenStore.swift                Keychain storage with a UserDefaults fallback
+  Views.swift                     menu bar content, rows, stats footer, settings
+  Formatting.swift                display formatting helpers
+support/Info.plist                bundle metadata + the ATS key explained above
+support/hermes-tunnel.plist       legacy, unreferenced sample SSH-tunnel LaunchAgent
+support/icon/AppIcon.iconset/     icon source (converted to .icns by make_app.sh)
+scripts/make_app.sh               build + assemble + ad-hoc sign the .app
 ```
 
-## Interpretation and validation
+`support/hermes-tunnel.plist` is not referenced by the app or this README; keep it
+as a sample or delete it.
 
-The API does not enumerate successful end reasons. The checkmark uses the
-explicit allowlist `cron_complete`, `complete`, `completed`, `success`, `stop`,
-and `normal` (case-insensitive). Unknown reasons get no checkmark. Active means
-`is_active == true`; other records appear under Recent, sorted by end time,
-then last activity/start time when unavailable. Memory and disk use binary
-gigabytes, labeled GB to match the brief. Connection becomes Connected after
-all three dashboard endpoints succeed; any outstanding dashboard endpoint failure
-shows Unreachable. Jobs polling is tracked separately from dashboard connectivity.
+## Licence
 
-Written and statically reviewed on Windows without a macOS SDK; compilation
-and live UI/network validation must be performed on a Mac. Verify launch,
-Settings, session links, busy/idle display, a connection outage/recovery, and token
-refresh against your Hermes instance after building. For the bundle, also verify
-HTTP connectivity, no Dock icon, Quit, Restart, and launch after logging out/in
-with **Launch at login** enabled. Disable it and confirm it stays off after
-reopening Settings. Bare SwiftPM runs should hide Restart and the login toggle.
+MIT — see [LICENSE](LICENSE).

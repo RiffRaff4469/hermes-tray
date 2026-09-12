@@ -253,7 +253,7 @@ struct SettingsView: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
                 .onChange(of: draft) { _ in saved = false; validationError = nil }
-            Text("Default: \(Store.defaultBaseURL) — connect to Tailscale first.")
+            Text("Base URL of your own Hermes backend, for example \(Store.defaultBaseURL).")
                 .font(.caption).foregroundStyle(.secondary)
             if Bundle.main.bundleIdentifier != nil {
                 Toggle("Launch at login", isOn: Binding(

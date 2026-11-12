@@ -6,59 +6,72 @@ what it is working on, and how the host it runs on is doing.
 
 - Menu bar icon (`waveform.path.ecg`) with an orange dot when the agent is busy or a job is running.
 - Header: connection state, host, Hermes version, counts.
-- **JOBS** — named long-running jobs with a liveness heartbeat (only when your backend serves the jobs endpoint).
+- **JOBS** — named long-running jobs with a liveness heartbeat (needs the companion jobs endpoint, below).
 - **ACTIVE** / **RECENT** — live sessions with elapsed time, tool-call count and model; finished sessions with a ✓ for clean ends.
 - System stats footer: CPU, RAM, disk free, uptime.
 - Footer: Open Dashboard, Settings…, Restart… (bundled builds only) and Quit.
+
+No third-party dependencies — SwiftPM, SwiftUI, Foundation and Security only.
+Zero LLM calls: the app never talks to a model, only to your dashboard.
+
+## Status
+
+Built against a Hermes backend from mid-2026 and checked against a stock
+**0.20.0** backend on 2026-09-12. Treat it as a status monitor, not a complete
+dashboard client.
+
+| Section | State |
+| --- | --- |
+| Busy badge, version, Open Dashboard / Quit / Restart | **Works.** `GET /api/status` is on the backend's credential-free allowlist. |
+| ACTIVE / RECENT sessions, CPU / RAM / disk / uptime | **Not working on current backends.** Those routes are gated, and the app's token bootstrap no longer matches how a current backend authenticates. |
+| JOBS | **Needs a companion endpoint.** `/api/tray/jobs` is not a stock Hermes route. |
+
+The hostname in the header comes from the gated stats endpoint, so it reads
+`Unknown host` until token bootstrap is fixed.
+
+### Why the gated sections are empty
+
+The app bootstraps a session token by reading `window.__HERMES_SESSION_TOKEN__`
+out of the HTML of `GET /`. A current backend no longer serves that token:
+`GET /` answers `302` to `/login?next=/`, and the sign-in page carries no token.
+The two supported ways in are a browser-style sign-in form
+(`GET /login`, fields `username`, `password`, `next`, sets a session cookie) or
+the native-app bearer path (`Authorization: Bearer <session-token>`, refreshed
+via `/auth/native/refresh`). HermesTray implements neither.
+
+Because the app re-scrapes on every 401, the header reports **Unreachable** with
+`The dashboard HTML did not contain a session token.` even while
+`/api/status` is answering normally.
+
+| Endpoint | Credentials |
+| --- | --- |
+| `GET /api/status` | none — credential-free allowlist |
+| `GET /api/sessions` | session cookie, or bearer session token |
+| `GET /api/system/stats` | session cookie, or bearer session token |
+| `GET /api/tray/jobs` | not a stock route — companion endpoint, see below |
+
+Gated requests answer `401 {"error":"unauthenticated","reason":"no_cookie","login_url":"/login"}`;
+a rejected token answers `{"reason":"invalid_or_expired_session"}`.
+
+### The JOBS section
+
+`/api/tray/jobs` is not part of Hermes. The app expects a small companion
+endpoint in front of the dashboard returning:
+
+```json
+{"jobs": [{"name": "nightly-build", "alive": true, "heartbeat_age": 4.2}]}
+```
+
+Pointed straight at a stock backend it gets `401 login_url:/login`, so the
+section stays hidden. Without that endpoint, everything else still works.
+
+Matching the current auth model is a separate piece of work and is not
+implemented here.
 
 ## Requirements
 
 - macOS 13.0 or later (SwiftUI `MenuBarExtra`).
 - Xcode 15 or later, or the full Xcode Command Line Tools (`xcode-select --install`, then `swift --version`).
-- No third-party dependencies — SwiftPM, SwiftUI, Foundation, Security only.
-
-## Status — read this before you build
-
-Verified on 2026-09-12 against a stock Hermes **0.20.0** backend (release build
-2026-08-03) at a VPN-reachable address. HermesTray was written against an older
-backend, and one part of it no longer matches the backend it talks to.
-
-**What works.** `GET /api/status` is on the backend's credential-free allowlist,
-so the icon's busy badge, the agent version in the header, and Open Dashboard /
-Quit / Restart all work against a current backend. (The hostname shown next to
-the version comes from the gated stats endpoint, so it reads `Unknown host`.)
-
-**What is stale — the session-token bootstrap.** The ACTIVE, RECENT and stats
-sections need a session token, and the app obtains one by scraping
-`window.__HERMES_SESSION_TOKEN__` out of the HTML of `GET /`. A current backend
-does not serve that token: `GET /` answers `302` to `/login?next=/`, and the
-sign-in page contains no session token at all. Those sections therefore stay
-empty, and because the app re-scrapes on every 401 they keep failing — the header
-shows **Unreachable** with `The dashboard HTML did not contain a session token.`
-even though `/api/status` itself is answering fine.
-
-The real auth on a current backend is a browser-style sign-in, and both available
-forms need a flow HermesTray does not implement:
-
-| Endpoint | Credentials required |
-| --- | --- |
-| `GET /api/status` | none — on the backend's credential-free allowlist |
-| `GET /api/sessions` | session cookie, or `Authorization: Bearer <session token>` |
-| `GET /api/system/stats` | session cookie, or `Authorization: Bearer <session token>` |
-| `GET /api/tray/jobs` | not a stock Hermes route — see below |
-
-- Sign-in form: `GET /login` (fields `username`, `password`, `next`) sets a session cookie. `GET /` redirects there.
-- Bearer: the backend also accepts the session token as `Authorization: Bearer …` (its native-app path), refreshed via `/auth/native/refresh`.
-- Unauthenticated gated requests answer `401` with `{"error":"unauthenticated","reason":"no_cookie","login_url":"/login"}`; a rejected token answers with `{"reason":"invalid_or_expired_session"}`.
-
-**What is stale — the JOBS section.** `/api/tray/jobs` is not a Hermes route. The
-app expects a small companion endpoint in front of the dashboard that returns
-`{"jobs":[{...,"alive":true,"heartbeat_age":4.2}]}`. Pointed straight at a stock
-backend it gets `401 login_url:/login`, so the JOBS section stays hidden.
-
-Neither stale path is fixed here: matching the new auth model is a separate piece
-of work. Until then, treat this as a monitor for the agent's status and busy
-state, not for session or host detail.
 
 ## Build and run
 
@@ -97,7 +110,7 @@ Settings… → **Base URL** → your own dashboard address → Save.
   the app polls that placeholder host and reports Unreachable.
 - Accepted: `http` or `https`, a host (and optional port), no credentials, query or fragment.
 - The Mac must be able to reach the host: same LAN, a VPN such as WireGuard or
-  Tailscale, or an SSH tunnel. `http://127.0.0.1:9119` works if you forward the port to your own machine.
+  Tailscale, or an SSH tunnel. `http://127.0.0.1:9119` works if you forward the port.
 
 **Cleartext HTTP and App Transport Security.** `support/Info.plist` sets
 `NSAppTransportSecurity → NSAllowsArbitraryLoads = true`. A bundled app otherwise
@@ -111,8 +124,6 @@ loopback.
 
 ## Data — what leaves the machine
 
-One line each:
-
 - **Requests:** `GET /api/status` and `/api/system/stats` every 4s, `/api/sessions` every 6s, `/api/tray/jobs` every 5s — all to the base URL you configure. No other host, no analytics, no update or phone-home requests.
 - **Sent:** no request bodies, no query parameters. An `Authorization: Bearer <token>` header on `/api/sessions` and `/api/system/stats` when a token is stored. Nothing else.
 - **Stored locally:** the base URL in `UserDefaults` (`HermesTray.baseURL`); the session token in the macOS Keychain (service `dev.hermes-tray.HermesTray.session-token`), falling back to `UserDefaults` — unencrypted — only if the Keychain write fails.
@@ -123,7 +134,7 @@ One line each:
 | Symptom | Cause / fix |
 | --- | --- |
 | Unreachable, connection refused or timed out | Wrong base URL, backend not running, or the Mac cannot reach the host (LAN/VPN/tunnel). Check the URL in a browser on the Mac first. |
-| `The dashboard HTML did not contain a session token.` | Expected on a current backend — see Status. Not a configuration problem. |
+| `The dashboard HTML did not contain a session token.` | Expected on a current backend — see [Status](#status). Not a configuration problem. |
 | `HTTP 401` from the jobs endpoint | The JOBS section needs a companion endpoint that serves `/api/tray/jobs`. |
 | No Dock icon, no window | By design — `LSUIElement` is true; the app lives in the menu bar. |
 | `swift: command not found` | Install Xcode 15+ or the full Command Line Tools, then `swift --version`. |
@@ -142,14 +153,10 @@ Sources/HermesTray/
   Views.swift                     menu bar content, rows, stats footer, settings
   Formatting.swift                display formatting helpers
 support/Info.plist                bundle metadata + the ATS key explained above
-support/hermes-tunnel.plist       legacy, unreferenced sample SSH-tunnel LaunchAgent
 support/icon/AppIcon.iconset/     icon source (converted to .icns by make_app.sh)
 scripts/make_app.sh               build + assemble + ad-hoc sign the .app
 ```
 
-`support/hermes-tunnel.plist` is not referenced by the app or this README; keep it
-as a sample or delete it.
-
-## Licence
+## License
 
 MIT — see [LICENSE](LICENSE).
